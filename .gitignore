@@ -1,0 +1,14 @@
+
+*.flac
+*.wav
+
+data/dataset/compressed/
+data/dataset/Libri-speech/
+
+data/speakers/known/
+data/speakers/unknown/
+
+models/
+
+src/__pycache__
+.venv

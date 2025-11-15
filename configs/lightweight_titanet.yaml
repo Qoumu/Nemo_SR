@@ -1,0 +1,33 @@
+# Lightweight inference recipe for TitaNet
+# The goal is to keep the recognizer accurate enough for shortlists of speakers
+# while shrinking the runtime/footprint through pruning + dynamic quantization.
+model:
+  pretrained_name: titanet_large
+  device: cpu
+  precision: float32
+  pruned_path: models/pruned_model.nemo
+  load_pruned: false
+
+  encoder:
+    enabled: true
+    # Remove redundant channels from the depth-wise separable blocks.
+    prune_amount: 0.8
+    prune_pointwise_only: false
+    min_channels: 64
+
+  quantization:
+    enabled: true
+    dtype: qint8
+    # Modules listed here are matched by torch class names inside TitaNet.
+    modules:
+      - Linear
+
+  preprocessor:
+    # Expose audio preprocessing hyper-parameters so downstream scripts
+    # can re-use them when exporting the model.
+    sample_rate: 16000
+    n_fft: 512
+    window_size: 0.02
+    window_stride: 0.01
+    features: 64
+    normalize: true
