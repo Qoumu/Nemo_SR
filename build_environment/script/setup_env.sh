@@ -73,7 +73,7 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REQUIREMENTS_FILE="$SCRIPT_DIR/../requirement.txt"
 
 if [[ "$INSTALL_REQUIREMENTS" == true ]]; then
-    if [[ -f "$REQUIREMENTS_FILE" ]]; then
+    if [[ -f $REQUIREMENTS_FILE ]]; then
         echo "Installing Python dependencies from $REQUIREMENTS_FILE..."
         "${PIP_CMD[@]}" install -r "$REQUIREMENTS_FILE"
     else
