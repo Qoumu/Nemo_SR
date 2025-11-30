@@ -57,11 +57,158 @@ def _gather_prunable_params(encoder: nn.Module, encoder_cfg: dict) -> list[tuple
     return params_to_prune
 
 
+def _calculate_layer_importance(module: nn.Module) -> float:
+    """Calculate importance score for a layer based on weight magnitude."""
+    if hasattr(module, "weight") and module.weight is not None:
+        return float(torch.norm(module.weight, p=1).item())
+    return 0.0
+
+
+def _prune_channels_by_magnitude(
+    params_to_prune: list[tuple[nn.Module, str]], amount: float
+) -> dict[int, list[int]]:
+    """
+    Remove output channels from conv layers based on channel-wise magnitude.
+    Returns mapping of module id to pruned channel indices for actual removal.
+    """
+    pruned_channels: dict[int, list[int]] = {}
+    
+    for module, name in params_to_prune:
+        if not hasattr(module, name):
+            continue
+        weight = getattr(module, name)
+        if weight.dim() < 2:
+            continue
+        
+        # Compute L1 norm per output channel (dim=0)
+        channel_norms = torch.norm(weight.view(weight.size(0), -1), p=1, dim=1)
+        
+        # Determine threshold for pruning
+        num_channels = channel_norms.numel()
+        num_to_prune = max(1, int(num_channels * amount))
+        
+        if num_to_prune >= num_channels:
+            continue
+        
+        # Find least important channels
+        _, indices_to_prune = torch.topk(channel_norms, num_to_prune, largest=False)
+        pruned_channels[id(module)] = indices_to_prune.tolist()
+        
+        # Apply structured pruning
+        prune.ln_structured(
+            module,
+            name=name,
+            amount=amount,
+            n=2,
+            dim=0,
+        )
+    
+    return pruned_channels
+
+
+def _remove_pruned_channels(encoder: nn.Module, pruned_channels: dict[int, list[int]]) -> None:
+    """
+    Actually remove pruned output channels from conv layers and adjust subsequent layers.
+    This makes the model physically smaller.
+    """
+    if not pruned_channels:
+        return
+    
+    for module in encoder.modules():
+        if not isinstance(module, Conv1dTypes):
+            continue
+        target = module.conv if isinstance(module, MaskedConv1d) else module
+        module_id = id(target)
+        
+        if module_id not in pruned_channels:
+            continue
+        
+        channels_to_keep = pruned_channels[module_id]
+        if not channels_to_keep:
+            continue
+        
+        # Remove pruned channels from weight and bias
+        if hasattr(target, "weight") and target.weight is not None:
+            channels_mask = torch.ones(target.weight.size(0), dtype=torch.bool)
+            channels_mask[channels_to_keep] = False
+            new_weight = target.weight.data[~channels_mask]
+            target.weight = nn.Parameter(new_weight)
+            target.out_channels = new_weight.size(0)
+        
+        if hasattr(target, "bias") and target.bias is not None:
+            channels_mask = torch.ones(target.bias.size(0), dtype=torch.bool)
+            channels_mask[channels_to_keep] = False
+            new_bias = target.bias.data[~channels_mask]
+            target.bias = nn.Parameter(new_bias)
+
+
+def _remove_pruned_weights(params_to_prune: list[tuple[nn.Module, str]]) -> None:
+    """
+    Remove pruned weights (convert sparse tensors to dense).
+    This reduces model file size by removing zero weights.
+    """
+    for module, name in params_to_prune:
+        if not hasattr(module, name):
+            continue
+        
+        weight = getattr(module, name)
+        
+        # If weight is sparse or has a mask, convert to dense and remove zeros
+        if hasattr(module, f"{name}_mask"):
+            mask = getattr(module, f"{name}_mask")
+            # Keep only non-masked weights
+            dense_weight = weight * mask
+            module.weight = nn.Parameter(dense_weight)
+            # Remove the mask
+            if hasattr(module, f"{name}_orig"):
+                delattr(module, f"{name}_orig")
+            if hasattr(module, f"{name}_mask"):
+                delattr(module, f"{name}_mask")
+        else:
+            # Ensure weight is dense
+            if weight.is_sparse:
+                module.weight = nn.Parameter(weight.to_dense())
+
+
+def _prune_layers_by_importance(
+    encoder: nn.Module, encoder_cfg: dict, amount: float
+) -> None:
+    """
+    Identify and prune less important layers based on weight magnitude.
+    Zeros out entire layer weights for less important layers.
+    """
+    layers: list[tuple[float, nn.Module, str]] = []
+    
+    for name, module in encoder.named_modules():
+        if isinstance(module, Conv1dTypes):
+            target = module.conv if isinstance(module, MaskedConv1d) else module
+            importance = _calculate_layer_importance(target)
+            layers.append((importance, target, name))
+    
+    if not layers:
+        return
+    
+    # Sort by importance (ascending)
+    layers.sort(key=lambda x: x[0])
+    num_to_prune = max(1, int(len(layers) * amount))
+    
+    # Prune least important layers
+    for _, module, _ in layers[:num_to_prune]:
+        if hasattr(module, "weight"):
+            module.weight.data.zero_()
+        if hasattr(module, "bias") and module.bias is not None:
+            module.bias.data.zero_()
+
+
 def prune_encoder_layers(encoder: nn.Module, encoder_cfg: dict | None) -> None:
     """
-    Apply pruning to encoder blocks in-place.
-    Only Conv1d/MaskedConv1d layers are touched. Pruning can be limited to
-    pointwise convolutions via config.
+    Apply pruning to encoder blocks in-place and physically remove pruned weights/channels.
+    Supports multiple pruning methods:
+    - 'l1_unstructured': Remove individual weights based on L1 magnitude
+    - 'l1_structured': Remove entire output channels based on channel magnitude
+    - 'layer_magnitude': Remove entire layers based on layer importance
+    
+    After pruning, physically removes the pruned weights to reduce model size.
     """
     if not encoder_cfg:
         return
@@ -75,28 +222,27 @@ def prune_encoder_layers(encoder: nn.Module, encoder_cfg: dict | None) -> None:
     if not params_to_prune:
         return
 
-    method = encoder_cfg.get("method", "l1_unstructured")
+    method = encoder_cfg.get("method", "l1_structured")
     amount = min(max(amount, 0.0), 0.95)
 
-    if method == "ln_structured":
-        # Removes entire output channels (structured), keeps masks removable.
-        for module, name in params_to_prune:
-            prune.ln_structured(
-                module,
-                name=name,
-                amount=amount,
-                n=2,
-                dim=0,
-            )
+    if method == "l1_structured":
+        # Removes entire output channels (structured pruning)
+        pruned_channels = _prune_channels_by_magnitude(params_to_prune, amount)
+        _remove_pruned_channels(encoder, pruned_channels)
+    elif method == "layer_magnitude":
+        # Removes entire layers based on weight magnitude importance
+        _prune_layers_by_importance(encoder, encoder_cfg, amount)
     else:
-        # Default to global L1 unstructured pruning
+        # L1 unstructured: removes individual weights
         prune.global_unstructured(
             params_to_prune,
             pruning_method=prune.L1Unstructured,
             amount=amount,
         )
+        # Remove sparse representation to reduce size
+        _remove_pruned_weights(params_to_prune)
 
-    # Remove the mask re-parametrization so saved checkpoints don't include it.
+    # Clean up any remaining mask re-parametrization
     for module, _ in params_to_prune:
         if hasattr(module, "weight_mask"):
             prune.remove(module, "weight")

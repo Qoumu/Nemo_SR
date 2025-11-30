@@ -22,7 +22,7 @@ def load_config(config_path: str | None) -> dict:
             "encoder": {
                 "enabled": True,
                 "prune_amount": 0.0,
-                "method": "l1_unstructured",
+                "method": "l1_structured",  # Options: 'l1_unstructured', 'l1_structured', 'layer_magnitude'
                 "keep_blocks": None,
                 "drop_blocks": None,
                 "keep_first_n": None,

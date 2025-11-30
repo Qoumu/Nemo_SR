@@ -79,3 +79,14 @@ def load_catalog_centroids(path):
         c = np.array(spk["centroid"], dtype=np.float32)
         enroll[sid] = _l2norm(c)
     return enroll
+
+def get_speaker_count_and_clips(json_path):
+    """Get statistics about speakers and clips in a JSON file."""
+    with open(json_path, "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+    
+    speakers = cfg.get("speakers", [])
+    num_speakers = len(speakers)
+    num_clips = sum(len(s.get("clips", [])) for s in speakers)
+    
+    return num_speakers, num_clips
