@@ -49,7 +49,7 @@ def main():
     model = TitaNet(
         config_path="configs/lightweight_titanet.yaml",
         device="cpu",
-        use_pruned_model=True,
+        use_pruned_model=False,
     )
     print(f"load titan et: {(time.perf_counter() - start):.2f}s")
 
@@ -70,7 +70,7 @@ def main():
     start = time.perf_counter()
     cohort = min(len(labels), 20)
     result = model.recognize(
-        query_wav="data/dataset/Libri-speech/7127/75946/7127-75946-0016.flac",
+        query_wav="data/dataset/compressed/13.17 19-10-2025_1.wav",
         target_sr=16000,
         index=idx,
         labels=labels,
