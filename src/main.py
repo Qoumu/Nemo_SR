@@ -57,7 +57,7 @@ def validate_on_unknown_speakers(
         print(f"\nValidating speaker {speaker_id} ({len(clips)} clips):")
         speaker_rejections = 0
         
-        for i, clip_path in enumerate(clips[:]):  # Validate on first 5 clips per speaker
+        for i, clip_path in enumerate(clips[:10]):  # Validate on first 5 clips per speaker
             try:
                 result = model.recognize(
                     query_wav=clip_path,
@@ -101,7 +101,7 @@ def main():
     model = TitaNet(
         config_path="configs/lightweight_titanet.yaml",
         device="cpu",
-        use_pruned_model=True,
+        use_pruned_model=False,
     )
     print(f"load titanet: {(time.perf_counter() - start):.2f}s")
 
@@ -120,14 +120,14 @@ def main():
         idx, labels = build_faiss(enroll)
 
     # # Load unknown speakers for validation
-    # unknown_json = Path("data/speakers/unknown/speaker.json")
-    # if unknown_json.exists():
-    #     print("\n--- Validation on Unknown Speakers ---")
-    #     try:
-    #         _, unknown_waves, _, target_sr = load_waveforms_from_json(str(unknown_json))
-    #         validate_on_unknown_speakers(model, unknown_waves, target_sr, idx, labels, enroll)
-    #     except Exception as e:
-    #         print(f"[WARN] Validation failed: {e}")
+    unknown_json = Path("data/speakers/unknown/speaker.json")
+    if unknown_json.exists():
+        print("\n--- Validation on Unknown Speakers ---")
+        try:
+            _, unknown_waves, _, target_sr = load_waveforms_from_json(str(unknown_json))
+            validate_on_unknown_speakers(model, unknown_waves, target_sr, idx, labels, enroll)
+        except Exception as e:
+            print(f"[WARN] Validation failed: {e}")
     
     # Test on known speaker for sanity check
     start = time.perf_counter()

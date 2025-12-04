@@ -199,7 +199,6 @@ def _prune_layers_by_importance(
         if hasattr(module, "bias") and module.bias is not None:
             module.bias.data.zero_()
 
-
 def prune_encoder_layers(encoder: nn.Module, encoder_cfg: dict | None) -> None:
     """
     Apply pruning to encoder blocks in-place and physically remove pruned weights/channels.
