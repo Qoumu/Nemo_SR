@@ -74,7 +74,7 @@ fi
 
 # Start install required packages
 if [[ "$INSTALL_REQUIREMENTS" == true ]]; then
-    if [[ -f "$REQUIREMENTS_FILE" ]]; then
+    if [[ -f $REQUIREMENTS_FILE ]]; then
         echo "Installing Python dependencies from $REQUIREMENTS_FILE..."
         "${PIP_CMD[@]}" install -r "$REQUIREMENTS_FILE"
     else

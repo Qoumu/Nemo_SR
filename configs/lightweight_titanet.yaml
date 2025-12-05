@@ -6,17 +6,26 @@ model:
   device: cpu
   precision: float32
   pruned_path: models/pruned_model.nemo
-  load_pruned: false
+  load_pruned: true
 
   encoder:
     enabled: true
     # Remove redundant channels from the depth-wise separable blocks.
-    prune_amount: 0.8
-    prune_pointwise_only: false
+    prune_amount: 0.5
+    method: ln_structured
+    prune_pointwise_only: true
     min_channels: 64
+    # Only prune weights/channels; do not drop whole Jasper blocks.
+    keep_first_n: null
+    keep_last_n: null
+
+  decoder:
+    # We only need embeddings; drop the massive speaker-classification head.
+    keep_classifier: false
+    target_num_classes: 2
 
   quantization:
-    enabled: true
+    enabled: false
     dtype: qint8
     # Modules listed here are matched by torch class names inside TitaNet.
     modules:

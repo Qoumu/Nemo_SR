@@ -17,6 +17,7 @@ class TitaNet:
         model_cfg = self.cfg.get("model", {})
         self.device = device or model_cfg.get("device", "cpu")
         pretrained_name = model_cfg.get("pretrained_name", "titanet_large")
+        quant_cfg = dict(model_cfg.get("quantization", {}))
 
         pruned_model_path = model_cfg.get("pruned_path")
         load_pruned = model_cfg.get("load_pruned", False)
@@ -36,6 +37,9 @@ class TitaNet:
             self.model_source = "exported"
         else:
             self.model = EncDecSpeakerLabelModel.from_pretrained(model_name=pretrained_name)
+
+        # Apply lightweight runtime quantization on CPU if enabled.
+        self.model = quantize_model(self.model, quant_cfg, device=self.device)
 
         precision = model_cfg.get("precision", "float32")
         if precision == "float16" and self.device == "cpu":

@@ -43,6 +43,58 @@ def build_faiss(enroll: dict[str, np.ndarray]):
     return index, labels
 
 
+def validate_on_unknown_speakers(
+    model, unknown_waves: dict, target_sr: int, idx, labels: list, enroll: dict, threshold: float = 0.75
+):
+    """
+    Validate model on unknown speakers.
+    Counts how many queries are correctly rejected (not matched to any known speaker).
+    """
+    correct_rejections = 0
+    total_queries = 0
+    
+    for speaker_id, clips in unknown_waves.items():
+        print(f"\nValidating speaker {speaker_id} ({len(clips)} clips):")
+        speaker_rejections = 0
+        
+        for i, clip_path in enumerate(clips[:10]):  # Validate on first 5 clips per speaker
+            try:
+                result = model.recognize(
+                    query_wav=clip_path,
+                    target_sr=target_sr,
+                    index=idx,
+                    labels=labels,
+                    threshold=threshold,
+                    norm_threshold=0.0,
+                    cohort_size=min(len(labels), 20),
+                    reference_catalog=enroll,
+                    pairwise_threshold=threshold,
+                )
+                
+                total_queries += 1
+                
+                # Check if query was correctly rejected (label is None or Unknown)
+                if result["best_match"] is None or result["best_match"] != str(speaker_id):
+                    correct_rejections += 1
+                    speaker_rejections += 1
+                    print(f"  Clip {i}: ✗ Unknown speaker correctly rejected")
+                else:
+                    print(f"  Clip {i}: ✓ Known speaker detected - matched to {result['best_match']} (conf={result['confidence']:.3f})")
+            except Exception as e:
+                print(f"  Clip {i}: Error - {e}")
+                total_queries += 1
+        
+        print(f"  Speaker {speaker_id} rejection rate: {speaker_rejections}/5")
+    
+    if total_queries > 0:
+        rejection_rate = 100 * correct_rejections / total_queries
+        print(f"\n--- Validation Summary ---")
+        print(f"Total unknown queries: {total_queries}")
+        print(f"Correct rejections: {correct_rejections}")
+        print(f"Rejection rate: {rejection_rate:.1f}%")
+        print(f"Known speaker rate: {100 - rejection_rate:.1f}%")
+
+
 def main():
     start = time.perf_counter()
 
@@ -51,7 +103,7 @@ def main():
         device="cpu",
         use_pruned_model=False,
     )
-    print(f"load titan et: {(time.perf_counter() - start):.2f}s")
+    print(f"load titanet: {(time.perf_counter() - start):.2f}s")
 
     known_json = Path("data/speakers/known/speaker.json")
     known_centroids_path = Path("data/speakers/known/centroids.json")
@@ -67,10 +119,21 @@ def main():
     with timed("build faiss index"):
         idx, labels = build_faiss(enroll)
 
+    # # Load unknown speakers for validation
+    unknown_json = Path("data/speakers/unknown/speaker.json")
+    if unknown_json.exists():
+        print("\n--- Validation on Unknown Speakers ---")
+        try:
+            _, unknown_waves, _, target_sr = load_waveforms_from_json(str(unknown_json))
+            validate_on_unknown_speakers(model, unknown_waves, target_sr, idx, labels, enroll)
+        except Exception as e:
+            print(f"[WARN] Validation failed: {e}")
+    
+    # Test on known speaker for sanity check
     start = time.perf_counter()
     cohort = min(len(labels), 20)
     result = model.recognize(
-        query_wav="data/dataset/compressed/13.17 19-10-2025_1.wav",
+        query_wav="data/dataset/Libri-speech/6930/81414/6930-81414-0000.flac",
         target_sr=16000,
         index=idx,
         labels=labels,
@@ -81,7 +144,7 @@ def main():
         pairwise_threshold=0.75,
     )
     print(
-        "Recognition result:",
+        "\nRecognition result:",
         f"label={result['label']} (best={result['best_match']} conf={result['confidence']:.3f})",
     )
     print(f"run model recognition: {(time.perf_counter() - start):.2f}s")
