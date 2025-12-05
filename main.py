@@ -5,9 +5,9 @@ import time
 import faiss
 import numpy as np
 
-from TitaNet import TitaNet
-from parser import load_catalog_centroids, load_waveforms_from_json, save_catalog_json
-from utils import timed
+from titanet.model.TitaNet import TitaNet
+from utils.parser import load_catalog_centroids, load_waveforms_from_json, save_catalog_json
+from utils.compute import timed
 
 
 def env_flag(name: str, default: str = "0") -> bool:
