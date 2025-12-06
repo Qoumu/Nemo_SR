@@ -1,6 +1,7 @@
 
 *.flac
 *.wav
+*.trans.txt
 
 data/dataset/compressed/
 data/dataset/Libri-speech/
