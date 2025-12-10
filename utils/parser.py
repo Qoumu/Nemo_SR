@@ -1,5 +1,5 @@
 import json, os, numpy as np, faiss, librosa
-from utils import _l2norm
+from utils.compute import _l2norm
 
 def load_waveforms_from_json(json_path):
     """

@@ -13,7 +13,7 @@ model:
   pretrained_name: titanet_large
   device: cpu
   precision: float32
-  pruned_path: models/pruned_model.nemo
+  pruned_path: export/titanet_finetuned.nemo
   load_pruned: true
 
   encoder:

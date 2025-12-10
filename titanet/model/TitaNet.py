@@ -20,6 +20,7 @@ class TitaNet:
         quant_cfg = dict(model_cfg.get("quantization", {}))
 
         pruned_model_path = model_cfg.get("pruned_path")
+        checkpoint_path = model_cfg.get("checkpoint_path")
         load_pruned = model_cfg.get("load_pruned", False)
         if use_pruned_model is not None:
             load_pruned = use_pruned_model
@@ -57,6 +58,7 @@ class TitaNet:
                 "pretrained_name": "titanet_large",
                 "device": "cpu",
                 "precision": "float32",
+                "checkpoint_path": None,
                 "encoder": {"enabled": True, "prune_amount": 0.0},
                 "quantization": {"enabled": False},
                 "pruned_path": None,
@@ -127,7 +129,7 @@ class TitaNet:
             emb = emb.squeeze(0).detach().cpu().numpy()
 
         emb = _l2norm(emb)
-        return emb  # shape [D]
+        return logits, emb  # shape [D]
 
     def batch_wav_to_embedding(self, sources, target_sr=16000):
         embeddings = []
@@ -173,75 +175,62 @@ class TitaNet:
         self,
         query_wav: str,
         target_sr: int,
-        index,
-        labels,
         threshold: float = 0.75,
-        norm_threshold: float | None = 0.0,
-        cohort_size: int | None = 20,
         reference_catalog: Mapping[str, np.ndarray] | None = None,
-        pairwise_threshold: float | None = None,
     ):
-        if pairwise_threshold is not None and reference_catalog is None:
-            raise ValueError(
-                "pairwise_threshold specified but reference_catalog is missing; provide enroll centroids to compare."
-            )
-        emb = self.wav_to_embedding(query_wav, target_sr)
-        q = emb.astype("float32").reshape(1, -1)
-        k = len(labels) if cohort_size is None else min(len(labels), max(2, cohort_size))
-        sims, idxs = index.search(q, k)
-        best_score = float(sims[0, 0])
-        best_idx = int(idxs[0, 0])
+        """
+        Simple cosine-based recognition.
+        Args:
+            query_wav: path to audio
+            target_sr: sample rate to load at
+            labels: list of labels (optional; unused when catalog keys are sufficient)
+            threshold: cosine threshold to accept
+            reference_catalog: mapping label -> embedding vector
+        Returns:
+            dict with label, best_match, score, is_same.
+        """
+        if not reference_catalog:
+            raise ValueError("recognize requires reference_catalog with label->embedding for cosine search.")
 
-        cohort_scores = sims[0, 1:] if sims.shape[1] > 1 else np.array([], dtype=np.float32)
-        norm_score, cohort_mean, cohort_std = z_norm_score(best_score, cohort_scores)
-        second_best = float(sims[0, 1]) if sims.shape[1] > 1 else None
+        logits, emb = self.wav_to_embedding(query_wav, target_sr)
+        emb = _l2norm(emb.astype("float32", copy=False))
+        
+        probs = torch.softmax(logits, dim=-1)
+        pred_idx = probs.argmax(dim=-1)   
+        print(f"Predicted class index: {pred_idx.item()}\n")
 
+        best_label = None
+        best_score = -1.0
+        for lbl, vec in reference_catalog.items():
+            if vec is None:
+                continue
+            ref = _l2norm(np.asarray(vec, dtype="float32"))
+            score = float(np.dot(ref, emb))
+            if score > best_score:
+                best_score = score
+                best_label = lbl
+
+        # Optional pairwise check using torch-based cosine helper (provides raw and [0,1] scaled)
         pairwise_similarity = None
         pairwise_similarity_01 = None
-        if reference_catalog is not None:
-            best_label = labels[best_idx]
-            ref_vec = reference_catalog.get(best_label, None)
-            if ref_vec is not None:
+        if best_label is not None:
+            best_vec = reference_catalog.get(best_label)
+            if best_vec is not None:
                 pairwise_similarity, pairwise_similarity_01 = self._pairwise_cosine_similarity(
-                    emb, ref_vec
+                    emb, best_vec
                 )
 
-        passes_raw = best_score >= threshold
-        passes_norm = True if norm_threshold is None else norm_score >= norm_threshold
-        passes_pairwise = True
-        if pairwise_threshold is not None:
-            passes_pairwise = (
-                pairwise_similarity_01 is not None and pairwise_similarity_01 >= pairwise_threshold
-            )
-        accepted = passes_raw and passes_norm and passes_pairwise
-        label = labels[best_idx] if accepted else "unknown"
-        confidence = (
-            calibrated_confidence(
-                raw_score=best_score,
-                norm_score=norm_score,
-                second_best=second_best,
-                threshold=threshold,
-                norm_threshold=norm_threshold,
-                pairwise_similarity=pairwise_similarity_01,
-                pairwise_threshold=pairwise_threshold,
-            )
-        )
+        is_same = best_score >= threshold
+        label = best_label if is_same else "unknown"
 
         return {
             "label": label,
-            "best_match": labels[best_idx],
-            "raw_score": best_score,
-            "norm_score": norm_score,
-            "cohort_mean": cohort_mean,
-            "cohort_std": cohort_std,
-            "second_best_score": second_best,
+            "best_match": best_label,
+            "score": best_score,
+            "is_same": is_same,
             "threshold": threshold,
-            "norm_threshold": norm_threshold,
             "pairwise_similarity": pairwise_similarity,
             "pairwise_similarity_01": pairwise_similarity_01,
-            "pairwise_threshold": pairwise_threshold,
-            "pairwise_passed": passes_pairwise,
-            "confidence": confidence,
         }
     
     def get_embedding_dim(self):
