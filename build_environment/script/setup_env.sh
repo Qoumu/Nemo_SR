@@ -50,9 +50,12 @@ else
     exit 0
 fi
 
-# Allow overriding the venv location with VENV_DIR; default to .venv.
-VENV_DIR=${VENV_DIR:-/root/Projects/.venv}
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+REQUIREMENTS_FILE="$SCRIPT_DIR/../requirement.txt"
+VENV_DIR=${VENV_DIR:-$SCRIPT_DIR/../../.venv}
 
+
+# Allow overriding the venv location with VENV_DIR; default to .venv.
 if [[ -d "$VENV_DIR" ]]; then
     echo "Virtual environment already exists at $VENV_DIR."
 else
@@ -69,9 +72,7 @@ else
     PIP_CMD=("$PYTHON_BIN" -m pip)
 fi
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-REQUIREMENTS_FILE="$SCRIPT_DIR/../requirement.txt"
-
+# Start install required packages
 if [[ "$INSTALL_REQUIREMENTS" == true ]]; then
     if [[ -f $REQUIREMENTS_FILE ]]; then
         echo "Installing Python dependencies from $REQUIREMENTS_FILE..."
