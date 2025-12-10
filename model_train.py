@@ -49,7 +49,7 @@ def main():
         show_live=True,
     )
     
-    callbacks=[prune_cp,
+    callbacks=[ # prune_cp,
                checkpoint_cb,
                lr_monitor,
                plot_cb]

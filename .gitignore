@@ -2,9 +2,11 @@
 *.flac
 *.wav
 *.trans.txt
+*.flac:Zone.Identifier
+*.trans.txt:Zone.Identifier
 
-data/dataset/compressed/
-data/dataset/Libri-speech/
+data/speakerdataset/compressed/
+data/speakerdataset/LibriSpeech/
 
 data/speakers/known/
 data/speakers/unknown/
