@@ -12,15 +12,20 @@ from data.speakerdataset.dataloader import Dataloader, collate_fn
 
 def main():
     
+    torch.set_float32_matmul_precision('medium')
+    
     # Prepare Dataset
-    train_dataset = Dataloader(manifest_path="data/speakers/known/speaker.json")
-    val_dataset = Dataloader(manifest_path="data/speakers/unknown/speaker.json")
+    train_dataset = Dataloader(manifest_path="data/speakers/known/known_speakers.json")
+    val_dataset = Dataloader(manifest_path="data/speakers/unknown/unknown_speakers.json")
     
     train_loader = DataLoader(
         train_dataset,
         batch_size=8,
         shuffle=True,
-        num_workers=4,
+        num_workers=8,
+        pin_memory=True,
+        # prefetch_factor=2,
+        persistent_workers=True,
         collate_fn=collate_fn,
     )
 
@@ -28,11 +33,14 @@ def main():
         val_dataset,
         batch_size=8,
         shuffle=False,
-        num_workers=4,
+        num_workers=8,
+        pin_memory=True,
+        # prefetch_factor=2,
+        persistent_workers=True,
         collate_fn=collate_fn,
     )
     
-    prune_cp = PruneCallback(amount=0.5, every_n_epochs=2)
+    prune_cp = PruneCallback(amount=0.2, every_n_epochs=5)
     
     checkpoint_cb = ModelCheckpoint(
         dirpath="ckpts/",
@@ -60,12 +68,12 @@ def main():
         use_pruned_model=False,
     )
     
-    model = TrainerModule(model, lr=1e-3)
+    model = TrainerModule(model, lr=1e-3, freeze_encoder=False)
     model_trainer = TrainerWrapper(
         model=model,
         train_dataloader=train_loader,
         val_dataloader=val_loader,
-        max_epochs=10,
+        max_epochs=50,
         callbacks=callbacks
     )
     
@@ -73,7 +81,7 @@ def main():
 
     # Final compact checkpoint with only model weights (no optimizer state, no masks).
     Path("ckpts").mkdir(parents=True, exist_ok=True)
-    model_trainer.trainer.save_checkpoint("ckpts/pruned.ckpt", weights_only=True)
+    model_trainer.trainer.save_checkpoint("ckpts/finetuned.ckpt", weights_only=True)
 
     # Export to NeMo archive for deployment.
     export_dir = Path("export")

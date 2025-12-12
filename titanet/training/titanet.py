@@ -104,7 +104,7 @@ class LiveLossPlotCallback(pl.Callback):
                 self._announced = True
                 
 class TrainerModule(pl.LightningModule):
-    def __init__(self, model: TitaNet | nn.Module, lr: float = 1e-3):
+    def __init__(self, model: TitaNet | nn.Module, lr: float = 1e-3, freeze_encoder: bool = False):
         super().__init__()
 
         base_model: nn.Module
@@ -119,6 +119,19 @@ class TrainerModule(pl.LightningModule):
         self.model.train()  # ensure train mode even if loaded in eval for inference
         self.lr = lr
         self.criterion = torch.nn.CrossEntropyLoss()
+        
+        # Freeze encoder if requested
+        if freeze_encoder:
+            self._freeze_encoder()
+
+    def _freeze_encoder(self):
+        """Freeze encoder parameters so they don't get updated during training."""
+        if hasattr(self.model, 'encoder'):
+            for param in self.model.encoder.parameters():
+                param.requires_grad = False
+            print("[TrainerModule] Encoder frozen - gradients will not be computed for encoder layers.")
+        else:
+            print("[TrainerModule] Warning: Model does not have 'encoder' attribute. Cannot freeze encoder.")
 
     def forward(self, x, lengths=None):
         """
@@ -181,8 +194,18 @@ class TrainerModule(pl.LightningModule):
         params = [p for p in self.model.parameters() if p.requires_grad]
         if not params:
             raise ValueError("No trainable parameters found for optimizer.")
-        optimizer = torch.optim.Adam(params, lr=self.lr)
-        return optimizer
+        optimizer = torch.optim.AdamW(params, lr=self.lr, weight_decay=0.01)
+        
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=self.trainer.max_epochs
+        )
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "interval": "epoch"
+            }
+        }
 
 class TrainerWrapper:
     def __init__(
@@ -191,7 +214,7 @@ class TrainerWrapper:
         train_dataloader=None,
         val_dataloader=None,
         lr: float = 1e-3,
-        accelerator: str = "auto",
+        accelerator: str = "gpu",
         devices: int = 1,
         max_epochs: int = 10,
         precision: str | int = "32-true",
@@ -210,6 +233,10 @@ class TrainerWrapper:
             devices=devices,
             max_epochs=max_epochs,
             precision=precision,
+            gradient_clip_val=1.0,             # ← stability
+            accumulate_grad_batches=8,         # ← effective larger batches
+            # benchmark=True,                    # ← cudnn autotuner
+            # deterministic=False,  
             callbacks=callbacks or [],
         )
 
