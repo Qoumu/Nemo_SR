@@ -102,7 +102,7 @@ def main():
     model = TitaNet(
         config_path="configs/lightweight_titanet.yaml",
         device="cpu",
-        use_pruned_model=True,
+        use_pruned_model=False,
     )  
     print(f"load titanet: {(time.perf_counter() - start):.2f}s")
 
@@ -133,7 +133,7 @@ def main():
     # Test on known speaker for sanity check
     start = time.perf_counter()
     result = model.recognize(
-        query_wav="data/speakerdataset/Libri-speech/6930/81414/6930-81414-0000.flac",
+        query_wav="data/speakerdataset/Libri-speech/1320/122612/1320-122612-0006.flac",
         target_sr=16000,
         threshold=0.75,
         reference_catalog=enroll,

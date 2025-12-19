@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 import pytorch_lightning as pl
-from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
+from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor, EarlyStopping
 from pathlib import Path
 
 from titanet.model.TitaNet import TitaNet
@@ -56,11 +56,18 @@ def main():
         save_path="lightning_logs/training_curve.png",
         show_live=True,
     )
+    early_stop_cb = EarlyStopping(
+        monitor="val_loss",
+        patience=5,
+        min_delta=1e-2,
+        mode="min",
+    )
     
     callbacks=[ # prune_cp,
                checkpoint_cb,
                lr_monitor,
-               plot_cb]
+               plot_cb,
+               early_stop_cb]
 
     model = TitaNet(
         config_path="configs/lightweight_titanet.yaml",
@@ -68,11 +75,12 @@ def main():
         use_pruned_model=False,
     )
     
-    model = TrainerModule(model, lr=1e-3, freeze_encoder=False)
+    model = TrainerModule(model, lr=1e-3, weight_decay=1e-4)
     model_trainer = TrainerWrapper(
         model=model,
         train_dataloader=train_loader,
         val_dataloader=val_loader,
+        max_epochs=50,
         max_epochs=50,
         callbacks=callbacks
     )
