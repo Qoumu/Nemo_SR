@@ -35,6 +35,7 @@ class Dataloader(Dataset):
     def __init__(self, manifest_path, sample_rate=16000):
         self.items = []
         self.target_sr = sample_rate
+        self.label_to_index: dict[str, int] = {}
 
         with open(manifest_path, "r", encoding="utf-8") as f:
             raw = f.read()
@@ -45,17 +46,67 @@ class Dataloader(Dataset):
             data = None
 
         if isinstance(data, dict) and "speakers" in data:
+            warnings.warn(
+                "Detected legacy nested manifest format. Please migrate to JSONL with "
+                '{"audio_filepath": ..., "offset": 0, "duration": ..., "label": ...}.',
+                stacklevel=2,
+            )
             self.target_sr = int(data.get("config", {}).get("target_sr", sample_rate))
             for spk in data.get("speakers", []):
-                sid = int(spk["id"])
+                label = str(spk["id"])
+                label_idx = self.label_to_index.setdefault(label, len(self.label_to_index))
                 for clip_path in spk.get("clips", []):
-                    self.items.append((clip_path, sid))
+                    self.items.append(
+                        {
+                            "audio_filepath": clip_path,
+                            "label": label_idx,
+                            "label_str": label,
+                            "offset": 0.0,
+                            "duration": None,
+                        }
+                    )
         else:
-            for line in raw.splitlines():
+            for line_no, line in enumerate(raw.splitlines(), start=1):
                 if not line.strip():
                     continue
-                obj = json.loads(line)
-                self.items.append((obj["audio_filepath"], int(obj["label"])))
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError as e:
+                    raise ValueError(f"Invalid JSON on line {line_no} of {manifest_path}: {e}") from e
+
+                audio_path = obj.get("audio_filepath")
+                label_str = obj.get("label") or obj.get("id") or obj.get("speaker")
+                if audio_path is None or label_str is None:
+                    raise ValueError(
+                        f"Manifest line {line_no} in {manifest_path} is missing audio_filepath or label."
+                    )
+
+                label_str = str(label_str)
+                label_idx = self.label_to_index.setdefault(label_str, len(self.label_to_index))
+
+                # Pick up sample rate hints if present; fall back to provided default.
+                if self.target_sr == sample_rate and obj.get("sample_rate") is not None:
+                    try:
+                        self.target_sr = int(obj["sample_rate"])
+                    except (TypeError, ValueError):
+                        pass
+
+                duration = obj.get("duration")
+                if duration is not None:
+                    try:
+                        duration = float(duration)
+                    except (TypeError, ValueError):
+                        duration = None
+
+                self.items.append(
+                    {
+                        "audio_filepath": str(audio_path),
+                        "label": label_idx,
+                        "label_str": label_str,
+                        "offset": float(obj.get("offset", 0.0) or 0.0),
+                        "duration": duration,
+                    }
+                )
 
         if not self.items:
             raise ValueError(f"No audio items found in {manifest_path}")
@@ -63,9 +114,10 @@ class Dataloader(Dataset):
         # Filter out missing audio files early to avoid cryptic decoder errors.
         existing = []
         missing = []
-        for wav_path, speaker_id in self.items:
+        for item in self.items:
+            wav_path = item["audio_filepath"]
             if Path(wav_path).exists():
-                existing.append((wav_path, speaker_id))
+                existing.append(item)
             else:
                 missing.append(wav_path)
         self.items = existing
@@ -85,7 +137,11 @@ class Dataloader(Dataset):
         return len(self.items)
 
     def __getitem__(self, idx):
-        wav_path, speaker_id = self.items[idx]
+        item = self.items[idx]
+        wav_path = item["audio_filepath"]
+        speaker_id = item["label"]
+        offset = float(item.get("offset", 0.0) or 0.0)
+        duration = item.get("duration")
 
         # Try torchaudio first; fall back to soundfile if torchcodec is unavailable.
         try:
@@ -97,6 +153,21 @@ class Dataloader(Dataset):
                 waveform = waveform.unsqueeze(0)  # [1, T]
             else:
                 waveform = waveform.transpose(0, 1)  # [C, T]
+
+        # Apply offset/duration cropping before any resampling.
+        start = int(round(offset * sr))
+        end = None
+        if duration is not None:
+            try:
+                end = start + int(round(float(duration) * sr))
+            except (TypeError, ValueError):
+                end = None
+
+        if start > 0 or end is not None:
+            if start >= waveform.shape[-1]:
+                waveform = waveform[..., :0]
+            else:
+                waveform = waveform[..., start:end]
 
         if sr != self.target_sr:
             waveform = torchaudio.functional.resample(

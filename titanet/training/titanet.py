@@ -104,7 +104,12 @@ class LiveLossPlotCallback(pl.Callback):
                 self._announced = True
                 
 class TrainerModule(pl.LightningModule):
-    def __init__(self, model: TitaNet | nn.Module, lr: float = 1e-3):
+    def __init__(
+        self,
+        model: TitaNet | nn.Module,
+        lr: float = 1e-3,
+        weight_decay: float = 1e-4,
+    ):
         super().__init__()
 
         base_model: nn.Module
@@ -118,6 +123,7 @@ class TrainerModule(pl.LightningModule):
         self.model = base_model
         self.model.train()  # ensure train mode even if loaded in eval for inference
         self.lr = lr
+        self.weight_decay = weight_decay
         self.criterion = torch.nn.CrossEntropyLoss()
 
     def forward(self, x, lengths=None):
@@ -181,7 +187,7 @@ class TrainerModule(pl.LightningModule):
         params = [p for p in self.model.parameters() if p.requires_grad]
         if not params:
             raise ValueError("No trainable parameters found for optimizer.")
-        optimizer = torch.optim.Adam(params, lr=self.lr)
+        optimizer = torch.optim.AdamW(params, lr=self.lr, weight_decay=self.weight_decay)
         return optimizer
 
 class TrainerWrapper:
@@ -191,9 +197,9 @@ class TrainerWrapper:
         train_dataloader=None,
         val_dataloader=None,
         lr: float = 1e-3,
-        accelerator: str = "auto",
+        accelerator: str = "gpu",
         devices: int = 1,
-        max_epochs: int = 10,
+        max_epochs: int = 50,
         precision: str | int = "32-true",
         callbacks: list | None = None,
     ):
@@ -202,14 +208,17 @@ class TrainerWrapper:
         self.val_dataloader = val_dataloader
 
         # You can still pass lr into the model if you want
-        if hasattr(self.model, "lr"):
+        if lr is not None and hasattr(self.model, "lr"):
             self.model.lr = lr
 
         self.trainer = pl.Trainer(
             accelerator=accelerator,
+            benchmark=True,    
             devices=devices,
             max_epochs=max_epochs,
             precision=precision,
+            accumulate_grad_batches=4,         
+            gradient_clip_val=1.0,
             callbacks=callbacks or [],
         )
 

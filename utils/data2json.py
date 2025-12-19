@@ -1,24 +1,22 @@
 """
-Utility to build a speaker catalog JSON from a folder of audio clips.
+Utility to build a JSON-lines manifest from a folder of audio clips.
 
-The default layout targets the LibriSpeech structure where files live under
+Each line in the output file looks like:
+  {"audio_filepath": "path/to/audio.flac", "offset": 0, "duration": 4.16, "label": "speaker_id"}
+
+The default layout targets LibriSpeech-style folders where files live under
 ``data/dataset/Libri-speech/<speaker>/<chapter>/<clip>.flac``.
-The resulting JSON matches the schema expected by ``parser.load_waveforms_from_json``:
-
-{
-  "config": {"target_sr": 16000},
-  "speakers": [
-      {"id": "speaker_id", "clips": ["path/to/audio1.flac", ...]}
-  ]
-}
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+from collections import defaultdict
 from pathlib import Path
 from typing import Iterable
+
+import soundfile as sf
 
 # Default audio suffixes to collect. Extend via --extensions if needed.
 KNOWN_AUDIO_SUFFIXES = (".wav", ".flac", ".ogg", ".mp3", ".m4a")
@@ -27,7 +25,7 @@ KNOWN_AUDIO_SUFFIXES = (".wav", ".flac", ".ogg", ".mp3", ".m4a")
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Scan a speaker dataset (e.g., LibriSpeech) and emit a JSON catalog "
+            "Scan a speaker dataset (e.g., LibriSpeech) and emit a JSONL manifest "
             "compatible with parser.load_waveforms_from_json."
         )
     )
@@ -47,7 +45,7 @@ def parse_args() -> argparse.Namespace:
         "--target-sr",
         type=int,
         default=16000,
-        help="Sampling rate metadata to store in the JSON config.",
+        help="(Deprecated) kept for backward compatibility; unused in JSONL output.",
     )
     parser.add_argument(
         "--max-clips",
@@ -108,28 +106,43 @@ def make_path_exportable(path: Path, base: Path) -> str:
         return path.as_posix()
 
 
-def build_catalog(
+def audio_duration_seconds(path: Path) -> float | None:
+    """Return clip duration in seconds using audio metadata."""
+    try:
+        info = sf.info(path)
+        if info.frames and info.samplerate:
+            return round(info.frames / info.samplerate, 4)
+    except Exception:
+        return None
+    return None
+
+
+def build_manifest(
     dataset_root: Path,
     *,
     suffixes: Iterable[str],
     max_clips: int | None,
     export_base: Path,
-    target_sr: int,
-) -> dict:
-    speaker_to_clips: dict[str, list[str]] = {}
+) -> tuple[list[dict], dict[str, int]]:
+    manifest: list[dict] = []
+    speaker_counts: dict[str, int] = defaultdict(int)
+
     for audio_path in iter_audio_files(dataset_root, suffixes):
         speaker_id = speaker_id_from_path(audio_path, dataset_root)
-        clip_list = speaker_to_clips.setdefault(speaker_id, [])
-        if max_clips is not None and len(clip_list) >= max_clips:
+        if max_clips is not None and speaker_counts[speaker_id] >= max_clips:
             continue
-        clip_list.append(make_path_exportable(audio_path, export_base))
 
-    speakers = []
-    for speaker_id, clips in sorted(speaker_to_clips.items()):
-        clips.sort()
-        speakers.append({"id": speaker_id, "clips": clips})
+        speaker_counts[speaker_id] += 1
+        manifest.append(
+            {
+                "audio_filepath": make_path_exportable(audio_path, export_base),
+                "offset": 0,
+                "duration": audio_duration_seconds(audio_path),
+                "label": speaker_id,
+            }
+        )
 
-    return {"config": {"target_sr": target_sr}, "speakers": speakers}
+    return manifest, speaker_counts
 
 
 def main() -> None:
@@ -140,22 +153,20 @@ def main() -> None:
 
     suffixes = normalise_extensions(args.extensions)
     export_base = args.relative_to.resolve()
-    catalog = build_catalog(
+    manifest, speaker_counts = build_manifest(
         dataset_root,
         suffixes=suffixes,
         max_clips=args.max_clips,
         export_base=export_base,
-        target_sr=args.target_sr,
     )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("w", encoding="utf-8") as f:
-        json.dump(catalog, f, ensure_ascii=False, indent=2)
+        for row in manifest:
+            json.dump(row, f, ensure_ascii=False)
+            f.write("\n")
 
-    print(
-        f"Wrote {len(catalog['speakers'])} speakers "
-        f"({sum(len(s['clips']) for s in catalog['speakers'])} clips) to {args.output}"
-    )
+    print(f"Wrote {len(manifest)} clips across {len(speaker_counts)} speakers to {args.output}")
 
 
 if __name__ == "__main__":
