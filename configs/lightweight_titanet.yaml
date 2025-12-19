@@ -1,11 +1,19 @@
 # Lightweight inference recipe for TitaNet
 # The goal is to keep the recognizer accurate enough for shortlists of speakers
 # while shrinking the runtime/footprint through pruning + dynamic quantization.
+data:
+  train_manifest: data/speakers/known/speaker.json
+  val_manifest: data/speakers/unknown/speaker.json
+  test_manifest: None
+  sample_rate: 16000
+  batch_size: 16
+  num_workers: 16
+
 model:
   pretrained_name: titanet_large
-  device: cpu
+  device: gpu
   precision: float32
-  pruned_path: models/pruned_model.nemo
+  pruned_path: export/titanet_finetuned.nemo
   load_pruned: true
 
   encoder:

@@ -21,3 +21,4 @@ scipy>=0.14
 soundfile
 sox
 texterrors
+torchaudio

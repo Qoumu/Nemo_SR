@@ -10,7 +10,6 @@ from nemo.collections.asr.parts.submodules.jasper import MaskedConv1d
 
 Conv1dTypes = (nn.Conv1d, MaskedConv1d)
 
-
 def _get_conv_attr(module: nn.Module, attr: str, default=None):
     if hasattr(module, attr):
         return getattr(module, attr)

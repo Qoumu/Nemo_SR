@@ -3,11 +3,12 @@ import os
 import time
 
 import faiss
+import torch
 import numpy as np
 
-from TitaNet import TitaNet
-from parser import load_catalog_centroids, load_waveforms_from_json, save_catalog_json
-from utils import timed
+from titanet.model.TitaNet import TitaNet
+from utils.parser import load_catalog_centroids, load_waveforms_from_json, save_catalog_json
+from utils.compute import timed
 
 
 def env_flag(name: str, default: str = "0") -> bool:
@@ -101,8 +102,8 @@ def main():
     model = TitaNet(
         config_path="configs/lightweight_titanet.yaml",
         device="cpu",
-        use_pruned_model=False,
-    )
+        use_pruned_model=True,
+    )  
     print(f"load titanet: {(time.perf_counter() - start):.2f}s")
 
     known_json = Path("data/speakers/known/speaker.json")
@@ -120,32 +121,26 @@ def main():
         idx, labels = build_faiss(enroll)
 
     # # Load unknown speakers for validation
-    unknown_json = Path("data/speakers/unknown/speaker.json")
-    if unknown_json.exists():
-        print("\n--- Validation on Unknown Speakers ---")
-        try:
-            _, unknown_waves, _, target_sr = load_waveforms_from_json(str(unknown_json))
-            validate_on_unknown_speakers(model, unknown_waves, target_sr, idx, labels, enroll)
-        except Exception as e:
-            print(f"[WARN] Validation failed: {e}")
+    # unknown_json = Path("data/speakers/unknown/speaker.json")
+    # if unknown_json.exists():
+    #     print("\n--- Validation on Unknown Speakers ---")
+    #     try:
+    #         _, unknown_waves, _, target_sr = load_waveforms_from_json(str(unknown_json))
+    #         validate_on_unknown_speakers(model, unknown_waves, target_sr, idx, labels, enroll)
+    #     except Exception as e:
+    #         print(f"[WARN] Validation failed: {e}")
     
     # Test on known speaker for sanity check
     start = time.perf_counter()
-    cohort = min(len(labels), 20)
     result = model.recognize(
-        query_wav="data/dataset/Libri-speech/6930/81414/6930-81414-0000.flac",
+        query_wav="data/speakerdataset/Libri-speech/6930/81414/6930-81414-0000.flac",
         target_sr=16000,
-        index=idx,
-        labels=labels,
         threshold=0.75,
-        norm_threshold=0.0,
-        cohort_size=cohort,
         reference_catalog=enroll,
-        pairwise_threshold=0.75,
     )
     print(
         "\nRecognition result:",
-        f"label={result['label']} (best={result['best_match']} conf={result['confidence']:.3f})",
+        f"label={result['label']} (best={result['best_match']} score={result['score']:.3f})",
     )
     print(f"run model recognition: {(time.perf_counter() - start):.2f}s")
 
