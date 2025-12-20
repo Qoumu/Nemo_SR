@@ -5,7 +5,7 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 
-from titanet.model.TitaNet import TitaNet
+from ASR.model.TitaNet import TitaNet
 
 class LiveLossPlotCallback(pl.Callback):
     """

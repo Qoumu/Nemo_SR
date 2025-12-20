@@ -5,8 +5,8 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor, EarlyStopping
 from pathlib import Path
 
-from titanet.model.TitaNet import TitaNet
-from titanet.training.titanet import LiveLossPlotCallback, TrainerModule, TrainerWrapper
+from ASR.model.TitaNet import TitaNet
+from ASR.training.titanet import LiveLossPlotCallback, TrainerModule, TrainerWrapper
 from pruning.pruner import PruneCallback
 from data.speakerdataset.dataloader import Dataloader, collate_fn
 

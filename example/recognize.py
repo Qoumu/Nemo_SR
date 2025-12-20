@@ -6,7 +6,7 @@ import faiss
 import torch
 import numpy as np
 
-from titanet.model.TitaNet import TitaNet
+from ASR.model.TitaNet import TitaNet
 from utils.parser import load_catalog_centroids, load_waveforms_from_json, save_catalog_json
 from utils.compute import timed
 
