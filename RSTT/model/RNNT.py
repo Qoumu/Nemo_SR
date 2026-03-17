@@ -1,6 +1,7 @@
 import nemo.collections.asr as nemo_asr
 from omegaconf import OmegaConf
 import numpy as np
+from utils.audio_processing import stream_audio
 
 # Load model
 model = nemo_asr.models.EncDecRNNTModel.restore_from(
@@ -14,9 +15,6 @@ decoding_cfg = OmegaConf.create({
 })
 model.change_decoding_strategy(decoding_cfg)
 model.eval()
-
-# Import your fixed stream_audio function
-from utils.audio_processing import stream_audio
 
 BUFFER_SIZE = int(2.0 * 16000)  # 2 seconds
 audio_buffer = np.array([], dtype=np.float32)

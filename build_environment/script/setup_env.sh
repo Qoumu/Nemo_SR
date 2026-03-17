@@ -1,5 +1,4 @@
 #!/bin/bash
-
 # This script sets up the environment for the project.
 
 set -euo pipefail
@@ -51,7 +50,9 @@ else
 fi
 
 # Allow overriding the venv location with VENV_DIR; default to .venv.
-VENV_DIR=${VENV_DIR:-/root/Projects/.venv}
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+REQUIREMENTS_FILE="$SCRIPT_DIR/../requirement.txt"
+VENV_DIR=${VENV_DIR:-"$SCRIPT_DIR/../../.venv"}
 
 if [[ -d "$VENV_DIR" ]]; then
     echo "Virtual environment already exists at $VENV_DIR."
@@ -68,9 +69,6 @@ else
     echo "Warning: pip not found in virtual environment; falling back to $PYTHON_BIN -m pip." >&2
     PIP_CMD=("$PYTHON_BIN" -m pip)
 fi
-
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-REQUIREMENTS_FILE="$SCRIPT_DIR/../requirement.txt"
 
 if [[ "$INSTALL_REQUIREMENTS" == true ]]; then
     if [[ -f $REQUIREMENTS_FILE ]]; then

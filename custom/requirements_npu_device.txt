@@ -1,0 +1,15 @@
+# NPU deployment requirements (Rockchip RKNN runtime on target device)
+# Recommended Python: 3.8 - 3.10
+#
+# This file is for running inference on-device with NPU (RKNN),
+# not for training with CUDA/GPU.
+
+numpy<2
+scipy
+librosa>=0.10,<0.11
+soundfile
+audioread
+torch
+
+# RKNN runtime for target board (RK356x / RK3588, etc.)
+rknn-toolkit-lite2

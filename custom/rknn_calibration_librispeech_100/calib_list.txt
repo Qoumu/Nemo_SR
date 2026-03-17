@@ -1,0 +1,4 @@
+/home/d/Projects/my_things/container/Be_enroll.wav
+/home/d/Projects/my_things/container/Hieu.wav
+/home/d/Projects/my_things/container/Dung.wav
+/home/d/Projects/my_things/container/Dung_3.wav

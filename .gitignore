@@ -2,6 +2,10 @@
 *.flac
 *.wav
 *.trans.txt
+*.png
+*.pth
+*.ckpt
+*.pt
 
 data/dataset/compressed/
 data/dataset/Libri-speech/
@@ -15,3 +19,4 @@ ckpts/
 
 __pycache__
 .venv
+.vscode
